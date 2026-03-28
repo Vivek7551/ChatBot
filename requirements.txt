@@ -1,0 +1,26 @@
+# Core GraphRAG chatbot
+openai
+requests
+tenacity
+chromadb
+numpy
+rank-bm25
+sentence-transformers
+neo4j
+
+# Index building / extraction
+tiktoken
+marker-pdf
+scispacy
+spacy
+
+# Optional Streamlit app (`main.py`)
+streamlit
+langchain
+python-dotenv
+faiss-cpu
+unstructured
+
+# Optional evaluation scripts
+ragas
+datasets
