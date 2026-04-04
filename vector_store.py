@@ -14,6 +14,7 @@ import numpy as np
 from rank_bm25 import BM25Okapi
 from openai import OpenAI
 import re
+from typing import Optional, Set
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -52,6 +53,13 @@ class HybridVectorStore:
 
         if not chunks:
             print("  WARNING: 0 chunks provided. Skipping vector DB build.")
+            try:
+                self.chroma_client.delete_collection("devreotes_papers")
+            except Exception:
+                pass
+            self.collection = self.chroma_client.create_collection("devreotes_papers")
+            self.bm25 = None
+            self._bm25_idx_to_chunk_id = []
             self._built = True
             return
 
@@ -99,6 +107,9 @@ class HybridVectorStore:
         if not self._built:
             raise RuntimeError("Call build() or load() before search().")
 
+        if not self.chunks:
+            return []
+
         res_embed = self.client.embeddings.create(input=[query], model="text-embedding-3-large")
         query_emb = res_embed.data[0].embedding
 
@@ -111,23 +122,20 @@ class HybridVectorStore:
         )
         dense_ids = [int(i) for i in chroma_res["ids"][0]]
 
-        # 2. BM25 Query
-        tokenized_query = tokenize(query)
-        bm25_scores = self.bm25.get_scores(tokenized_query)
-        top_bm25_indices = np.argsort(bm25_scores)[::-1][:TOP_K_INITIAL]
-
-        # 3. RRF Fusion
+        # 2. BM25 Query (optional if corpus was empty at some point)
         k_rf = 60
         rrf_scores: dict[int, float] = {}
 
         for rank, chunk_id in enumerate(dense_ids):
             rrf_scores[chunk_id] = rrf_scores.get(chunk_id, 0.0) + 1.0 / (rank + k_rf)
 
-        # Use the explicit index map so BM25 corpus positions are correctly
-        # translated to chunk IDs regardless of how IDs were assigned.
-        for rank, corpus_idx in enumerate(top_bm25_indices):
-            chunk_id = self._bm25_idx_to_chunk_id[int(corpus_idx)]
-            rrf_scores[chunk_id] = rrf_scores.get(chunk_id, 0.0) + 1.0 / (rank + k_rf)
+        if self.bm25 is not None and self._bm25_idx_to_chunk_id:
+            tokenized_query = tokenize(query)
+            bm25_scores = self.bm25.get_scores(tokenized_query)
+            top_bm25_indices = np.argsort(bm25_scores)[::-1][:TOP_K_INITIAL]
+            for rank, corpus_idx in enumerate(top_bm25_indices):
+                chunk_id = self._bm25_idx_to_chunk_id[int(corpus_idx)]
+                rrf_scores[chunk_id] = rrf_scores.get(chunk_id, 0.0) + 1.0 / (rank + k_rf)
 
         sorted_rrf  = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
         top_k_fused = sorted_rrf[:k]
@@ -143,6 +151,64 @@ class HybridVectorStore:
 
         return results
 
+    def search_chroma_dense(
+        self,
+        query: str,
+        k: int = 10,
+        exclude_ids: Optional[Set[int]] = None,
+    ) -> list[dict]:
+        """
+        ChromaDB dense retrieval only (no BM25 / RRF). Used as secondary fallback
+        after graph-first traversal when the pool needs more candidates.
+        """
+        if not self._built:
+            raise RuntimeError("Call build() or load() before search_chroma_dense().")
+        if not self.chunks:
+            return []
+
+        exclude_ids = exclude_ids or set()
+        res_embed = self.client.embeddings.create(
+            input=[query], model="text-embedding-3-large"
+        )
+        query_emb = res_embed.data[0].embedding
+
+        n_pool = min(
+            len(self.chunks),
+            max(k * 4, k + len(exclude_ids), 20),
+        )
+        chroma_res = self.collection.query(
+            query_embeddings=[query_emb],
+            n_results=n_pool,
+            include=["distances", "documents", "metadatas"],
+        )
+
+        ids_row = chroma_res["ids"][0] if chroma_res["ids"] else []
+        dist_rows = chroma_res.get("distances")
+        dist_list = dist_rows[0] if dist_rows and len(dist_rows[0]) == len(ids_row) else None
+
+        chunk_lookup = {c["id"]: c for c in self.chunks}
+        results: list[dict] = []
+        for rank, sid in enumerate(ids_row):
+            cid = int(sid)
+            if cid in exclude_ids:
+                continue
+            if cid not in chunk_lookup:
+                continue
+            if dist_list is not None:
+                dist = float(dist_list[rank])
+                score = round(1.0 / (1.0 + dist), 4)
+            else:
+                score = round(1.0 / (rank + 61.0), 4)
+            row = dict(chunk_lookup[cid])
+            row["score"] = score
+            row["graph_retrieved"] = False
+            row["retrieval_source"] = "chroma_dense"
+            results.append(row)
+            if len(results) >= k:
+                break
+
+        return results
+
     def save(self, path: str = "data/chunks.json") -> None:
         """
         Since ChromaDB is persistent on disk, we only need to save the chunks
@@ -155,17 +221,63 @@ class HybridVectorStore:
 
     def load(self, path: str = "data/chunks.json") -> None:
         if not os.path.exists(path):
-            raise FileNotFoundError(
-                f"Chunks not found at {path}. Run `python build_index.py` first."
-            )
+            print(f"  No chunks file at {path} — starting with an empty corpus.")
+            try:
+                self.chroma_client.delete_collection("devreotes_papers")
+            except Exception:
+                pass
+            self.collection = self.chroma_client.create_collection("devreotes_papers")
+            self.chunks = []
+            self.bm25 = None
+            self._bm25_idx_to_chunk_id = []
+            self._built = True
+            return
+
         print(f"  Loading chunks from {path}...")
         with open(path, "r", encoding="utf-8") as f:
             self.chunks = json.load(f)
 
-        print("  Building BM25 in-memory index from chunks...")
-        tokenized_corpus = [tokenize(doc["text"]) for doc in self.chunks]
-        self.bm25 = BM25Okapi(tokenized_corpus)
-        # Rebuild the index map so search() translates positions correctly
-        self._bm25_idx_to_chunk_id = [chunk["id"] for chunk in self.chunks]
+        if self.chunks:
+            print("  Building BM25 in-memory index from chunks...")
+            tokenized_corpus = [tokenize(doc["text"]) for doc in self.chunks]
+            self.bm25 = BM25Okapi(tokenized_corpus)
+            self._bm25_idx_to_chunk_id = [chunk["id"] for chunk in self.chunks]
+        else:
+            self.bm25 = None
+            self._bm25_idx_to_chunk_id = []
         self._built = True
         print(f"  Loaded {len(self.chunks)} chunks. Vector DB ready.")
+
+    def append_chunks(self, new_chunks: list[dict]) -> None:
+        """Embed and index new chunks without wiping Chroma; rebuilds BM25 over full corpus."""
+        if not new_chunks:
+            return
+        if not self._built:
+            raise RuntimeError("Call load() or build() before append_chunks().")
+
+        texts = [c["text"] for c in new_chunks]
+        ids = [str(c["id"]) for c in new_chunks]
+        metadatas = [
+            {k: str(v) if isinstance(v, list) else v for k, v in c.items() if k != "text"}
+            for c in new_chunks
+        ]
+
+        print(f"  Embedding {len(new_chunks)} new chunks (text-embedding-3-large)...")
+        embeddings = []
+        for i in range(0, len(texts), 200):
+            batch = texts[i : i + 200]
+            res = self.client.embeddings.create(input=batch, model="text-embedding-3-large")
+            embeddings.extend([r.embedding for r in res.data])
+
+        self.collection.add(
+            embeddings=embeddings,
+            documents=texts,
+            metadatas=metadatas,
+            ids=ids,
+        )
+        self.chunks.extend(new_chunks)
+
+        tokenized_corpus = [tokenize(doc["text"]) for doc in self.chunks]
+        self.bm25 = BM25Okapi(tokenized_corpus) if tokenized_corpus else None
+        self._bm25_idx_to_chunk_id = [c["id"] for c in self.chunks]
+        print(f"  Corpus now {len(self.chunks)} chunks (BM25 rebuilt).")

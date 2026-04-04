@@ -1,4 +1,7 @@
 # Core GraphRAG chatbot
+flask
+flask-cors
+werkzeug
 openai
 requests
 tenacity

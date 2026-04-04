@@ -1,9 +1,9 @@
 """
 graph_loader.py
 ---------------
-Loads triples from data/triples.json into Neo4j Aura and exposes a
-GraphRetriever class that rag_engine.py calls as a drop-in augmentation
-of the existing hybrid vector search.
+Loads triples from data/triples.json into Neo4j Aura and exposes
+GraphRetriever: graph-first chunk retrieval with Chroma dense fallback,
+used by rag_engine.py when Neo4j is available.
 
 Usage (one-time, to populate the graph):
     python graph_loader.py
@@ -52,6 +52,9 @@ NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD")
 MAX_HOPS           = 2    # neighbourhood depth for graph traversal
 TOP_K_GRAPH        = 15   # max chunk IDs to return from graph traversal
 GRAPH_TRAVERSE_LIMIT = 200  # max neighbour nodes to visit per entity (prevents slow unbounded traversals)
+
+# When graph returns at least this many chunks, skip Chroma top-up (still use Chroma if graph is weaker)
+_GRAPH_FULL_POOL = int(os.environ.get("GRAPH_PRIMARY_MIN_K", "12"))
 
 # Stopwords to exclude from entity matching — prevents common words
 # flooding the full-text index with noise hits.
@@ -248,7 +251,12 @@ def print_graph_stats(driver) -> None:
 # ---------------------------------------------------------------------------
 class GraphRetriever:
     """
-    Augments the HybridVectorStore search with Neo4j Aura graph traversal.
+    Graph-first retrieval against Neo4j Aura:
+
+      1. Entity linking — query tokens → full-text index on Entity nodes
+      2. Graph traversal — collect chunk_ids from k-hop neighbourhood (primary)
+      3. ChromaDB dense search — fills remaining slots when the graph pool is thin (secondary)
+      4. Merge — graph-tagged chunks first; CrossEncoder reranking happens in rag_engine
     """
 
     def __init__(self):
@@ -317,7 +325,7 @@ class GraphRetriever:
                 return [r["name"] for r in rows]
         except Exception as e:
             # Lucene parse errors or transient Neo4j errors — fall back gracefully
-            print(f"  [Graph] Fulltext query failed (falling back to vector-only): {e}")
+            print(f"  [Graph] Fulltext query failed (Chroma dense fallback): {e}")
             return []
 
     # ------------------------------------------------------------------
@@ -388,6 +396,52 @@ class GraphRetriever:
             return steps
 
     # ------------------------------------------------------------------
+    def _score_graph_chunk_ids(
+        self,
+        query: str,
+        vector_store,
+        chunk_ids: list[int],
+        chunk_lookup: dict,
+    ) -> list[dict]:
+        """Turn graph-linked chunk IDs into scored chunk dicts (BM25 vs query when available)."""
+        if not chunk_ids:
+            return []
+
+        from vector_store import tokenize
+
+        tokenized_query = tokenize(query)
+        bm25_scores_all = (
+            vector_store.bm25.get_scores(tokenized_query)
+            if vector_store.bm25 is not None
+            else None
+        )
+        id_list = getattr(vector_store, "_bm25_idx_to_chunk_id", None) or [
+            c["id"] for c in vector_store.chunks
+        ]
+        chunk_id_to_idx = {cid: idx for idx, cid in enumerate(id_list)}
+
+        scored: list[tuple[float, int]] = []
+        for cid in chunk_ids:
+            if cid not in chunk_lookup:
+                continue
+            sc = 0.08
+            if bm25_scores_all is not None and cid in chunk_id_to_idx:
+                raw = float(bm25_scores_all[chunk_id_to_idx[cid]])
+                sc = round(raw / (raw + 60.0), 4)
+            scored.append((sc, cid))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        out = []
+        for sc, cid in scored:
+            out.append({
+                **chunk_lookup[cid],
+                "score": sc,
+                "graph_retrieved": True,
+                "retrieval_source": "graph_traversal",
+            })
+        return out
+
+    # ------------------------------------------------------------------
     # Main search entry point
     # ------------------------------------------------------------------
     def search(
@@ -398,81 +452,72 @@ class GraphRetriever:
         k: int = 20,
     ) -> list[dict]:
         """
-        Merges hybrid vector results with graph-traversal results.
+        Graph-first retrieval, Chroma dense as secondary:
 
-        Flow:
-          1. Run existing hybrid vector search → scored candidates
-          2. Full-text match query terms → entity names in graph
-          3. Traverse 1-2 hops from those entities → additional chunk IDs
-          4. Fetch those chunks; assign BM25 score so they compete fairly
-          5. Merge, deduplicate (keep highest score), return top-k
+          1. Entity extraction (query -> Neo4j full-text index)
+          2. Graph traversal -> chunk IDs (primary)
+          3. Score graph chunks (BM25 vs query), cap at *k*
+          4. ChromaDB dense search to fill toward *k* when the graph pool is thin
+          5. Merge (graph rows first; dedupe by id keeps first = graph)
         """
-        # Step 1 — vector search (existing pipeline, unchanged)
-        vector_chunks = vector_store.search(query, k=k)
-        vector_id_set = {c["id"] for c in vector_chunks}
-
-        # Step 2 — entity matching via full-text index
-        entities = self._extract_query_entities(query)
-        if entities:
-            print(f"  [Graph] Entities matched: {entities[:5]}")
-        else:
-            print("  [Graph] No entity matches — returning vector results only.")
-            return vector_chunks
-
-        # Step 3 — graph traversal
-        graph_chunk_ids = self._get_related_chunk_ids(entities)
-        new_ids = [cid for cid in graph_chunk_ids if cid not in vector_id_set]
-        print(f"  [Graph] {len(graph_chunk_ids)} graph chunk IDs, "
-              f"{len(new_ids)} new (not already in vector results).")
-
-        # Step 4 — fetch graph-only chunks and score them via BM25 so they
-        # compete on equal footing with vector results rather than being
-        # pinned to a fixed low score.
         chunk_lookup = {c["id"]: c for c in all_chunks}
 
-        graph_chunks = []
-        if new_ids and vector_store.bm25 is not None:
-            from vector_store import tokenize
-            tokenized_query = tokenize(query)
-            bm25_scores_all = vector_store.bm25.get_scores(tokenized_query)
-            # Build index → chunk_id map to look up BM25 scores correctly
-            idx_to_chunk_id = {i: c["id"] for i, c in enumerate(vector_store.chunks)}
-            chunk_id_to_idx = {v: k for k, v in idx_to_chunk_id.items()}
+        entities = self._extract_query_entities(query)
+        graph_chunks: list[dict] = []
 
-            for cid in new_ids:
-                if cid not in chunk_lookup:
-                    continue
-                bm25_score = 0.0
-                if cid in chunk_id_to_idx:
-                    raw = float(bm25_scores_all[chunk_id_to_idx[cid]])
-                    # Normalise to the same RRF-ish range as vector scores
-                    bm25_score = round(raw / (raw + 60.0), 4)
-                graph_chunks.append({
-                    **chunk_lookup[cid],
-                    "score": bm25_score,
-                    "graph_retrieved": True,
-                })
+        if entities:
+            print(f"  [Retrieval] Query entities -> graph: {entities[:5]}")
+            graph_ids = self._get_related_chunk_ids(entities)
+            print(
+                f"  [Retrieval] Graph traversal -> {len(graph_ids)} chunk id(s) (primary)"
+            )
+            graph_chunks = self._score_graph_chunk_ids(
+                query, vector_store, graph_ids, chunk_lookup
+            )
         else:
-            # BM25 unavailable — fall back to a modest non-zero score
-            graph_chunks = [
-                {**chunk_lookup[cid], "score": 0.02, "graph_retrieved": True}
-                for cid in new_ids
-                if cid in chunk_lookup
-            ]
+            print(
+                "  [Retrieval] No graph entity hits -> Chroma dense fallback only."
+            )
 
-        # Tag vector chunks with source flag
-        for c in vector_chunks:
-            c.setdefault("graph_retrieved", False)
+        graph_chunks = graph_chunks[:k]
+        graph_ids_seen = {c["id"] for c in graph_chunks}
 
-        # Step 5 — merge, deduplicate by id (keep highest score), sort, top-k
-        seen: dict[int, dict] = {}
-        for c in vector_chunks + graph_chunks:
+        need_fill = k - len(graph_chunks)
+        thin = len(graph_chunks) < min(_GRAPH_FULL_POOL, k)
+        want = max(need_fill, (min(_GRAPH_FULL_POOL, k) - len(graph_chunks)) if thin else 0)
+
+        fallback: list[dict] = []
+        if want > 0:
+            fallback = vector_store.search_chroma_dense(
+                query, k=want, exclude_ids=graph_ids_seen
+            )
+            print(
+                f"  [Retrieval] Chroma dense (secondary) -> +{len(fallback)} chunk(s)"
+            )
+
+        merged: list[dict] = []
+        seen: set[int] = set()
+        for c in graph_chunks + fallback:
             cid = c["id"]
-            if cid not in seen or c.get("score", 0) > seen[cid].get("score", 0):
-                seen[cid] = c
+            if cid in seen:
+                continue
+            seen.add(cid)
+            merged.append(c)
 
-        ranked = sorted(seen.values(), key=lambda x: x.get("score", 0), reverse=True)
-        return ranked[:k]
+        if len(merged) < k:
+            extra = vector_store.search_chroma_dense(
+                query,
+                k=k - len(merged),
+                exclude_ids=seen,
+            )
+            for c in extra:
+                if c["id"] in seen:
+                    continue
+                seen.add(c["id"])
+                merged.append(c)
+
+        return merged[:k]
+
 
 
 # ---------------------------------------------------------------------------

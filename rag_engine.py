@@ -1,17 +1,16 @@
 """
 rag_engine.py
 -------------
-Advanced RAG pipeline — Graph-Augmented.
+Advanced RAG pipeline — graph-first when Neo4j is enabled.
 
-Retrieval order:
-  1. Hybrid Vector Search (ChromaDB dense + BM25 sparse, RRF-fused)
-  2. Graph Traversal via GraphRetriever (Neo4j)
-  3. CrossEncoder Reranking over the merged candidate pool
+Retrieval order (with graph):
+  1. Query entity linking + graph traversal (Neo4j) → primary chunk IDs
+  2. ChromaDB dense embeddings → secondary candidates to fill the pool
+  3. Merge (graph-tagged chunks first), then CrossEncoder reranking
   4. Grounded LLM generation with citation enforcement
 
-GraphRetriever is optional: if Neo4j is unavailable or
-USE_GRAPH_RETRIEVAL=0 is set, the engine falls back silently to the
-original pure-vector pipeline so nothing breaks.
+Without graph (USE_GRAPH_RETRIEVAL=0 or Neo4j unavailable):
+  Hybrid vector search (Chroma + BM25 RRF), then rerank + generate.
 """
 
 import os
@@ -39,19 +38,20 @@ MAX_HISTORY_TURNS = 10
 # Set USE_GRAPH_RETRIEVAL=0 to disable graph augmentation without code changes
 USE_GRAPH = os.environ.get("USE_GRAPH_RETRIEVAL", "1") == "1"
 
-SYSTEM_PROMPT = """You are a scientific research assistant specialising in the \
-published work of Professor Peter N. Devreotes, a cell biologist at Johns \
-Hopkins University known for his research on chemotaxis, signal transduction, \
-and membrane protein biology.
+SYSTEM_PROMPT = """You are a scientific research assistant for students and \
+researchers learning about the published work of Professor Peter N. Devreotes, \
+a cell biologist at Johns Hopkins University (chemotaxis, signal transduction, \
+membrane protein biology, PI3K/PTEN, actin dynamics).
 
 You answer questions ONLY using the excerpts from Prof. Devreotes' papers \
-provided in the context below. Do not draw on outside knowledge.
+provided in the current user message (the CONTEXT section). Do not use outside \
+knowledge beyond what students would reasonably need for terminology clarity.
 
 Guidelines:
-- Always cite which paper(s) your answer comes from, using the title and year.
+- Prefer clear explanations while staying accurate and citation-grounded.
+- Always cite which paper(s) support each claim, using the title and year and the [S#] tags requested in the prompt.
 - If multiple papers address the question, synthesise across them.
-- If the context does not contain enough information, say so clearly — do not guess.
-- Use precise scientific language appropriate for a graduate-level audience.
+- If the context does not contain enough information, say so — do not guess.
 - When quoting specific findings, be exact.
 """
 
@@ -172,10 +172,25 @@ class RAGEngine:
         print("Advanced RAG engine ready.\n")
 
     # ------------------------------------------------------------------
+    def reload_corpus(self) -> None:
+        """Reload chunk list and BM25 from disk (Chroma unchanged)."""
+        self.store.load(self.store_path)
+
+    # ------------------------------------------------------------------
+    def _retrieval_query_from_history(self, query: str, history: list[dict]) -> str:
+        """Combine the latest user turn with the new question for better retrieval on follow-ups."""
+        if not history:
+            return query
+        user_msgs = [m["content"] for m in history if m.get("role") == "user"]
+        if not user_msgs:
+            return query
+        return f"Earlier question: {user_msgs[-1]}\nFollow-up: {query}"
+
+    # ------------------------------------------------------------------
     def _retrieve(self, query: str) -> list[dict]:
         """
-        Unified retrieval: vector-only or graph-augmented depending on
-        whether GraphRetriever was initialised successfully.
+        Graph-first retrieval (Neo4j + Chroma dense fallback) when
+        GraphRetriever is available; otherwise hybrid Chroma+BM25 only.
         """
         if self.graph_retriever is not None:
             return self.graph_retriever.search(
@@ -295,6 +310,96 @@ class RAGEngine:
 
         if multi_turn:
             self.conversation_history.append({"role": "assistant", "content": answer})
+
+        return answer, final_chunks
+
+    # ------------------------------------------------------------------
+    def ask_with_history(
+        self,
+        query: str,
+        history: list[dict],
+    ) -> tuple[str, list[dict]]:
+        """
+        Multi-turn chat backed by explicit *history* (user/assistant pairs only).
+        Retrieval uses the current question plus the previous user message for context.
+        Does not mutate self.conversation_history.
+        """
+        retrieval_query = self._retrieval_query_from_history(query, history)
+        candidate_chunks = self._retrieve(retrieval_query)
+
+        if candidate_chunks:
+            pairs = [[query, chunk["text"]] for chunk in candidate_chunks]
+            scores = self.reranker.predict(pairs)
+            scored_chunks = sorted(
+                zip(scores, candidate_chunks), key=lambda x: x[0], reverse=True
+            )
+            final_chunks = [chunk for _, chunk in scored_chunks[:TOP_K_RERANK]]
+            for score, chunk in scored_chunks[:TOP_K_RERANK]:
+                chunk["rerank_score"] = round(float(score), 4)
+        else:
+            final_chunks = []
+
+        if not final_chunks:
+            return REFUSAL_MESSAGE, []
+
+        context, citation_tags = build_context(final_chunks)
+        if len(context) > MAX_CONTEXT_CHARS:
+            context = context[:MAX_CONTEXT_CHARS] + "\n\n[Context truncated for length]"
+
+        grounded_message = (
+            f"CONTEXT FROM PROF. DEVREOTES' PAPERS:\n\n"
+            f"{context}\n\n"
+            f"---\n\n"
+            f"QUESTION: {query}\n\n"
+            f"ANSWERING RULES:\n"
+            f"1) Answer using ONLY information present in the context above.\n"
+            f"2) After each factual claim, add a citation tag like [S1] or [S2, S3] "
+            f"   using only these allowed tags: {', '.join(citation_tags)}.\n"
+            f"3) If the context partially addresses the question, answer what you can "
+            f"   and note what is not covered — but DO NOT refuse entirely if there is "
+            f"   ANY relevant information in the context.\n"
+            f"4) Write in clear, graduate-level scientific prose.\n"
+        )
+
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        for m in history:
+            if m.get("role") in ("user", "assistant"):
+                messages.append({"role": m["role"], "content": m["content"]})
+        messages.append({"role": "user", "content": grounded_message})
+
+        response = self.client.chat.completions.create(
+            model=MODEL,
+            max_tokens=MAX_TOKENS,
+            messages=messages,
+        )
+        answer = (response.choices[0].message.content or "").strip()
+
+        if answer != REFUSAL_MESSAGE:
+            allowed = set(citation_tags)
+            used = _extract_citations(answer)
+
+            if not used:
+                repaired = _repair_answer_with_citations(
+                    client=self.client,
+                    draft_answer=answer,
+                    context=context,
+                    citation_tags=citation_tags,
+                )
+                repaired_used = _extract_citations(repaired)
+                if repaired_used & allowed:
+                    answer = repaired
+                else:
+                    answer = REFUSAL_MESSAGE
+            elif not used.issubset(allowed):
+                repaired = _repair_answer_with_citations(
+                    client=self.client,
+                    draft_answer=answer,
+                    context=context,
+                    citation_tags=citation_tags,
+                )
+                repaired_used = _extract_citations(repaired)
+                if repaired_used & allowed:
+                    answer = repaired
 
         return answer, final_chunks
 

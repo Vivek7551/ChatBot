@@ -1,49 +1,23 @@
-# ── Secrets & credentials ────────────────────────────────────────────
+# .gitignore
 .env
 .env.*
 !.env.example
 
-# ── Python ───────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
-*.so
-*.egg
-*.egg-info/
-dist/
-build/
-.eggs/
-
-# ── Virtual environments ──────────────────────────────────────────────
 .venv/
 .venv312/
 venv/
-env/
-ENV/
 
-# ── Generated / large data files ─────────────────────────────────────
 data/chroma_db/
 data/marker_output/
 data/chunks.json
 data/triples.json
 data/metadata_cache.json
-# Keep data/ directory itself tracked (so the folder exists on clone)
-!data/.gitkeep
+data/chat_history.db
 
-# ── PDFs (keep out of git — often large) ─────────────────────────────
 *.pdf
-
-# ── macOS ─────────────────────────────────────────────────────────────
 .DS_Store
-.AppleDouble
-.LSOverride
-
-# ── IDE / editor ──────────────────────────────────────────────────────
 .idea/
 .vscode/
-*.swp
-*.swo
-
-# ── Logs ──────────────────────────────────────────────────────────────
 *.log

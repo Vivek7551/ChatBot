@@ -8,10 +8,12 @@ scispaCy sentence segmentation.
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
+from typing import Optional
+
 import tiktoken
-import spacy
 import openai
 from dotenv import load_dotenv
 
@@ -20,7 +22,9 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-PDF_DIR = Path("/Users/mynampativivekreddy/Downloads/Research Papers")
+_REPO_ROOT = Path(__file__).resolve().parent
+_DEFAULT_PDF_DIR = _REPO_ROOT / "papers"
+PDF_DIR = Path(os.environ.get("GRAPH_RAG_PDF_DIR", str(_DEFAULT_PDF_DIR)))
 OUTPUT_FILE = Path("data/chunks.json")
 MARKER_OUT_DIR = Path("data/marker_output")
 METADATA_CACHE = Path("data/metadata_cache.json")
@@ -30,17 +34,71 @@ CHUNK_SIZE = 500  # Semantic tokens per chunk target
 # ---------------------------------------------------------------------------
 # Metadata Extraction (Dynamic LLM)
 # ---------------------------------------------------------------------------
-def extract_metadata_with_llm(raw_text: str, filename: str) -> dict:
-    """Uses gpt-4o-mini to read the first page of the paper and extract metadata."""
-    
-    # 1. Check if we already extracted metadata for this file to save time/API costs
-    cache = {}
-    if METADATA_CACHE.exists():
-        with open(METADATA_CACHE, "r", encoding="utf-8") as f:
-            cache = json.load(f)
-            
+def _normalize_metadata(meta: dict, filename: str) -> dict:
+    """Coerce LLM JSON into stable types for downstream chunking and graph code."""
+    title = meta.get("title") or filename
+    if not isinstance(title, str):
+        title = str(title)
+
+    authors = meta.get("authors", ["Unknown"])
+    if isinstance(authors, str):
+        authors = [a.strip() for a in authors.replace(" and ", ", ").split(",") if a.strip()]
+    elif not isinstance(authors, list):
+        authors = ["Unknown"]
+    else:
+        authors = [str(a).strip() for a in authors if str(a).strip()]
+    if not authors:
+        authors = ["Unknown"]
+
+    year = meta.get("year", 0)
+    try:
+        year = int(year)
+    except (TypeError, ValueError):
+        year = 0
+
+    journal = meta.get("journal", "Unknown")
+    if not isinstance(journal, str):
+        journal = str(journal) if journal else "Unknown"
+
+    topics = meta.get("topics", [])
+    if isinstance(topics, str):
+        topics = [topics] if topics else []
+    elif not isinstance(topics, list):
+        topics = []
+    else:
+        topics = [str(t).strip() for t in topics if str(t).strip()]
+
+    return {
+        "title": title,
+        "authors": authors,
+        "year": year,
+        "journal": journal,
+        "topics": topics,
+    }
+
+
+def _save_metadata_cache(cache: dict) -> None:
+    os.makedirs(METADATA_CACHE.parent, exist_ok=True)
+    with open(METADATA_CACHE, "w", encoding="utf-8") as f:
+        json.dump(cache, f, indent=2, ensure_ascii=False)
+
+
+def extract_metadata_with_llm(
+    raw_text: str, filename: str, cache: Optional[dict] = None
+) -> tuple[dict, dict]:
+    """
+    Uses gpt-4o-mini to read the start of the paper and extract metadata.
+    Pass a shared *cache* dict (loaded once per run); it is updated in place when
+    new metadata is fetched. Returns (metadata, cache).
+    """
+    if cache is None:
+        cache = {}
+        if METADATA_CACHE.exists():
+            with open(METADATA_CACHE, "r", encoding="utf-8") as f:
+                cache.update(json.load(f))
+
     if filename in cache:
-        return cache[filename]
+        return _normalize_metadata(cache[filename], filename), cache
         
     print(f"      Calling LLM to extract metadata for {filename}...")
     
@@ -48,7 +106,7 @@ def extract_metadata_with_llm(raw_text: str, filename: str) -> dict:
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         print("      [WARN] OPENAI_API_KEY not found. Using fallback metadata.")
-        return {"title": filename, "authors": ["Unknown"], "year": 0, "journal": "Unknown", "topics": []}
+        return _normalize_metadata({}, filename), cache
         
     client = openai.OpenAI(api_key=api_key)
     
@@ -77,50 +135,59 @@ def extract_metadata_with_llm(raw_text: str, filename: str) -> dict:
         )
         
         meta = json.loads(response.choices[0].message.content)
-        
-        # 4. Save to cache so we don't have to call the LLM again for this file
+        meta = _normalize_metadata(meta, filename)
+
         cache[filename] = meta
-        os.makedirs("data", exist_ok=True)
-        with open(METADATA_CACHE, "w", encoding="utf-8") as f:
-            json.dump(cache, f, indent=2, ensure_ascii=False)
-            
-        return meta
-        
+        _save_metadata_cache(cache)
+
+        return meta, cache
+
     except Exception as e:
         print(f"      [ERROR] LLM Metadata extraction failed: {e}")
-        return {"title": filename, "authors": ["Unknown"], "year": 0, "journal": "Unknown", "topics": []}
+        fb = _normalize_metadata({}, filename)
+        return fb, cache
 
 
 # ---------------------------------------------------------------------------
 # Main extraction pipeline
 # ---------------------------------------------------------------------------
+def _clean_marker_markdown(text: str) -> str:
+    """Normalise line endings and collapse runaway blank lines from PDF conversion."""
+    text = text.replace("\r\n", "\n")
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
 def extract_pdf_marker(pdf_path: Path) -> str:
     """Uses marker_single CLI to convert PDF to markdown."""
     os.makedirs(MARKER_OUT_DIR, exist_ok=True)
     folder_name = pdf_path.stem
     md_file = MARKER_OUT_DIR / folder_name / f"{folder_name}.md"
-    
-    # If already extracted, skip to save time
+
     if md_file.exists():
         with open(md_file, "r", encoding="utf-8") as f:
-            return f.read()
-    
+            return _clean_marker_markdown(f.read())
+
     cmd = [
         "marker_single",
         str(pdf_path),
         "--output_dir",
-        str(MARKER_OUT_DIR)
+        str(MARKER_OUT_DIR),
     ]
-    print(f"      Running Marker OCR/Extraction (this may take a minute)...")
+    print("      Running Marker OCR/Extraction (this may take a minute)...")
     res = subprocess.run(cmd, capture_output=True, text=True)
-    
+
     if md_file.exists():
         with open(md_file, "r", encoding="utf-8") as f:
-            return f.read()
-    else:
-        print(f"      WARNING: Marker failed to output markdown for {pdf_path.name}")
-        print(f"      Marker Error Output:\n{res.stderr}")
-        return ""
+            return _clean_marker_markdown(f.read())
+
+    if res.returncode != 0:
+        print(f"      WARNING: marker_single exited with code {res.returncode} for {pdf_path.name}")
+    print(f"      WARNING: Marker failed to output markdown for {pdf_path.name}")
+    err = (res.stderr or res.stdout or "").strip()
+    if err:
+        print(f"      Marker output:\n{err[:2000]}")
+    return ""
 
 
 def get_encoder():
@@ -183,6 +250,68 @@ def chunk_text_scispacy(text: str, nlp, encoder, chunk_size: int) -> list[str]:
 
     return chunks
 
+
+def build_chunks_for_pdf(
+    pdf_path: Path,
+    start_chunk_id: int,
+    meta_cache: Optional[dict],
+    nlp=None,
+    encoder=None,
+) -> tuple[list[dict], dict]:
+    """
+    Extract, metadata, and chunk a single PDF. Returns (chunk dicts, updated meta_cache).
+    *start_chunk_id* is the next global chunk id to assign.
+    Pass shared *nlp* / *encoder* when batching many PDFs to avoid reloading models.
+    """
+    if meta_cache is None:
+        meta_cache = {}
+        if METADATA_CACHE.exists():
+            with open(METADATA_CACHE, "r", encoding="utf-8") as f:
+                meta_cache.update(json.load(f))
+
+    if nlp is None:
+        nlp = load_scispacy_model()
+    if encoder is None:
+        encoder = get_encoder()
+
+    filename = pdf_path.name
+    raw_text = extract_pdf_marker(pdf_path)
+    if not raw_text.strip():
+        return [], meta_cache
+
+    meta, meta_cache = extract_metadata_with_llm(raw_text, filename, meta_cache)
+    title, authors, year, journal, topics = (
+        meta["title"],
+        meta["authors"],
+        meta["year"],
+        meta["journal"],
+        meta["topics"],
+    )
+
+    raw_chunks = chunk_text_scispacy(raw_text, nlp, encoder, CHUNK_SIZE)
+    kept = [c for c in raw_chunks if len(c) >= 50]
+    total_kept = len(kept)
+
+    out: list[dict] = []
+    cid = start_chunk_id
+    for i, chunk_text_content in enumerate(kept):
+        out.append({
+            "id": cid,
+            "text": chunk_text_content,
+            "source": filename,
+            "chunk_index": i,
+            "total_chunks": total_kept,
+            "title": title,
+            "authors": authors,
+            "year": year,
+            "journal": journal,
+            "topics": topics,
+        })
+        cid += 1
+
+    return out, meta_cache
+
+
 def build_chunks() -> list[dict]:
     """
     Extract, clean, and chunk all PDFs.
@@ -192,50 +321,34 @@ def build_chunks() -> list[dict]:
     chunk_id = 0
     encoder = get_encoder()
     nlp = load_scispacy_model()
-    
-    for pdf_file in sorted(PDF_DIR.glob("*.pdf")):
-        filename = pdf_file.name
+    meta_cache: dict = {}
+    if METADATA_CACHE.exists():
+        with open(METADATA_CACHE, "r", encoding="utf-8") as f:
+            meta_cache.update(json.load(f))
 
+    if not PDF_DIR.is_dir():
+        print(f"  [WARN] PDF directory does not exist: {PDF_DIR}")
+        print("         Add PDFs under ./papers/ or set GRAPH_RAG_PDF_DIR.")
+        return []
+
+    pdfs = sorted(PDF_DIR.glob("*.pdf"))
+    if not pdfs:
+        print(f"  [WARN] No PDF files found in {PDF_DIR}")
+        return []
+
+    for pdf_file in pdfs:
+        filename = pdf_file.name
         print(f"  Extracting: {filename}...")
-        raw_text = extract_pdf_marker(pdf_file)
-        
-        if not raw_text.strip():
+        added, meta_cache = build_chunks_for_pdf(
+            pdf_file, chunk_id, meta_cache, nlp=nlp, encoder=encoder
+        )
+        if not added:
             continue
-            
-        # Dynamically extract metadata
-        meta = extract_metadata_with_llm(raw_text, filename)
-        
-        # Safe-fallbacks just in case the LLM formatting is weird
-        title = meta.get("title", filename)
-        authors = meta.get("authors", ["Unknown"])
-        year = meta.get("year", 0)
-        journal = meta.get("journal", "Unknown")
-        topics = meta.get("topics", [])
-        
-        print(f"      ↳ {title[:60]} ({year})")
-            
+        print(f"      ↳ {added[0]['title'][:60]} ({added[0]['year']})")
         print(f"      Chunking with scispaCy (target {CHUNK_SIZE} tokens/chunk)...")
-        chunks = chunk_text_scispacy(raw_text, nlp, encoder, CHUNK_SIZE)
-        
-        for i, chunk_text_content in enumerate(chunks):
-            if len(chunk_text_content) < 50:
-                continue
-                
-            all_chunks.append({
-                "id": chunk_id,
-                "text": chunk_text_content,
-                "source": filename,
-                "chunk_index": i,
-                "total_chunks": len(chunks),
-                "title": title,
-                "authors": authors,
-                "year": year,
-                "journal": journal,
-                "topics": topics,
-            })
-            chunk_id += 1
-            
-        print(f"    → {len(chunks)} semantic chunks produced\n")
+        print(f"    → {len(added)} semantic chunks kept\n")
+        all_chunks.extend(added)
+        chunk_id += len(added)
 
     return all_chunks
 

@@ -27,10 +27,11 @@ Environment variables:
 """
 
 import json
+import logging
 import os
 import time
 from pathlib import Path
-import logging
+from typing import Optional
 
 import openai
 from dotenv import load_dotenv
@@ -247,16 +248,26 @@ def _is_valid_triple(t: dict) -> bool:
     return True
 
 
+def _coerce_node_type(label: Optional[str]) -> str:
+    """Map LLM output to an allowed Neo4j node label; unknown → BiologicalEntity."""
+    t = (label or "").strip()
+    if t in ALLOWED_NODE_TYPES:
+        return t
+    return "BiologicalEntity"
+
+
 def _enrich_triple(t: dict, chunk: dict) -> dict:
     """Add provenance fields that graph_loader.py expects."""
+    t["subject_type"] = _coerce_node_type(t.get("subject_type"))
+    t["object_type"] = _coerce_node_type(t.get("object_type"))
     t["chunk_id"]    = chunk["id"]
     t["source"]      = chunk["source"]      # PDF filename
     t["paper_title"] = chunk["title"]       # graph_loader.py reads this
     t["paper_year"]  = chunk["year"]
     t.setdefault("ontology_source", None)
     t.setdefault("confidence", "medium")
-    # Upgrade confidence for known high-value relations
-    if t["relation"] in _HIGH_CONFIDENCE_RELATIONS and t["confidence"] == "medium":
+    # Upgrade confidence for known high-value relations (after relation is validated upstream)
+    if t["relation"] in _HIGH_CONFIDENCE_RELATIONS and t.get("confidence") == "medium":
         t["confidence"] = "high"
     return t
 
@@ -331,6 +342,144 @@ def generate_author_triples(chunks: list[dict]) -> list[dict]:
                     })
 
     return triples
+
+
+def generate_author_triples_for_sources(chunks: list[dict], sources: set[str]) -> list[dict]:
+    """Like generate_author_triples but only papers whose PDF filename is in *sources*."""
+    if not sources:
+        return []
+    seen_papers: dict[str, dict] = {}
+    for chunk in chunks:
+        if chunk["source"] in sources:
+            seen_papers.setdefault(chunk["source"], chunk)
+    triples: list[dict] = []
+    for paper_chunk in seen_papers.values():
+        title = paper_chunk["title"]
+        year = paper_chunk["year"]
+        src = paper_chunk["source"]
+        cid = paper_chunk["id"]
+        authors = paper_chunk.get("authors", [])
+        if not authors:
+            continue
+        for author in authors:
+            triples.append({
+                "subject": title,
+                "subject_type": "Paper",
+                "relation": "AUTHORED_BY",
+                "object": author,
+                "object_type": "Author",
+                "evidence": f"{title} ({year}) authored by {author}",
+                "confidence": "high",
+                "ontology_source": None,
+                "chunk_id": cid,
+                "source": src,
+                "paper_title": title,
+                "paper_year": year,
+            })
+        triples.append({
+            "subject": authors[0],
+            "subject_type": "Author",
+            "relation": "FIRST_AUTHOR_OF",
+            "object": title,
+            "object_type": "Paper",
+            "evidence": f"{authors[0]} is first author of {title} ({year})",
+            "confidence": "high",
+            "ontology_source": None,
+            "chunk_id": cid,
+            "source": src,
+            "paper_title": title,
+            "paper_year": year,
+        })
+        for i, a in enumerate(authors):
+            for b in authors[i + 1:]:
+                for subj, obj in [(a, b), (b, a)]:
+                    triples.append({
+                        "subject": subj,
+                        "subject_type": "Author",
+                        "relation": "COLLABORATED_WITH",
+                        "object": obj,
+                        "object_type": "Author",
+                        "evidence": f"{subj} and {obj} co-authored {title} ({year})",
+                        "confidence": "high",
+                        "ontology_source": None,
+                        "chunk_id": cid,
+                        "source": src,
+                        "paper_title": title,
+                        "paper_year": year,
+                    })
+    return triples
+
+
+def extract_biology_triples_from_chunks(
+    chunks: list[dict],
+    *,
+    client: openai.OpenAI,
+    annotator: OntologyAnnotator,
+    nlp,
+    sleep_s: float = SLEEP_BETWEEN,
+    log_prefix: str = "",
+) -> list[dict]:
+    """Run ontology + LLM extraction for each chunk; returns validated biological triples."""
+    out: list[dict] = []
+    total = len(chunks)
+    for idx, chunk in enumerate(chunks, 1):
+        if log_prefix:
+            short_title = (chunk.get("title") or "")[:52]
+            print(f"{log_prefix} [{idx}/{total}] chunk {chunk['id']} | {short_title}...", end=" ", flush=True)
+        ontology_hits = annotator.annotate(chunk["text"])
+        ner_entities = _extract_ner_entities(chunk["text"], nlp)
+        entity_ctx = _build_entity_context(ontology_hits, ner_entities)
+        raw_triples: list[dict] = []
+        try:
+            raw_triples = _call_llm(client, chunk, entity_ctx)
+        except openai.APIError as e:
+            if log_prefix:
+                print(f"\n    [WARN] API error chunk {chunk['id']}: {e}")
+        except Exception as e:
+            if log_prefix:
+                print(f"\n    [WARN] Unexpected error chunk {chunk['id']}: {e}")
+        valid = []
+        for t in raw_triples:
+            t = _enrich_triple(t, chunk)
+            if _is_valid_triple(t):
+                valid.append(t)
+        out.extend(valid)
+        if log_prefix:
+            print(f"→ {len(valid)} triples")
+        time.sleep(sleep_s)
+    return out
+
+
+def merge_triples_after_ingest(
+    all_chunks: list[dict],
+    new_chunks: list[dict],
+    new_bio_triples: list[dict],
+    triples_path: Path,
+) -> list[dict]:
+    """
+    Rewrite triples.json: fresh author graph for full corpus + old biological triples
+    (excluding any chunk_ids we are replacing) + *new_bio_triples*.
+    """
+    new_ids = {c["id"] for c in new_chunks}
+    sources_new = {c["source"] for c in new_chunks}
+    existing: list[dict] = []
+    if triples_path.exists():
+        with open(triples_path, "r", encoding="utf-8") as f:
+            existing = json.load(f)
+
+    bio_kept = [
+        t
+        for t in existing
+        if t.get("relation") not in _AUTHOR_RELATIONS
+        and t.get("chunk_id") not in new_ids
+        and t.get("source") not in sources_new
+    ]
+    author_all = generate_author_triples(all_chunks)
+    merged = author_all + bio_kept + new_bio_triples
+    os.makedirs(triples_path.parent, exist_ok=True)
+    with open(triples_path, "w", encoding="utf-8") as f:
+        json.dump(merged, f, ensure_ascii=False, indent=2)
+    return merged
 
 
 # ---------------------------------------------------------------------------
@@ -446,12 +595,13 @@ def main():
 
         time.sleep(SLEEP_BETWEEN)
 
-    # Summary
-    bio_triples = len(all_triples) - len(author_triples)
+    # Summary (count from merged file so resume runs report correct totals)
+    n_author_in_all = sum(1 for t in all_triples if t["relation"] in _AUTHOR_RELATIONS)
+    n_bio_in_all = len(all_triples) - n_author_in_all
     print("\n" + "=" * 65)
-    print(f"  Extraction complete.")
-    print(f"  Author triples      : {len(author_triples)}")
-    print(f"  Biological triples  : {bio_triples}")
+    print("  Extraction complete.")
+    print(f"  Author triples      : {n_author_in_all}")
+    print(f"  Biological triples  : {n_bio_in_all}")
     print(f"  High-confidence     : {n_high}")
     print(f"  Dropped (filtered)  : {n_dropped}")
     print(f"  Total saved         : {len(all_triples)}")

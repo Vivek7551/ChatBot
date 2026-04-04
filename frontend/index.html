@@ -3,775 +3,597 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Devreotes Lab — Research Assistant</title>
+  <title>Devreotes Lab — Student Research Assistant</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
-    /* ── Reset & base ─────────────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
     :root {
-      --bg:          #0b0f1a;
-      --surface:     #111827;
-      --surface2:    #1a2236;
-      --border:      rgba(255,255,255,.07);
-      --teal:        #00d4aa;
-      --teal-dim:    rgba(0, 212, 170, .15);
-      --teal-glow:   0 0 20px rgba(0,212,170,.25);
-      --text:        #e2e8f0;
-      --text-muted:  #64748b;
-      --text-dim:    #94a3b8;
-      --user-grad:   linear-gradient(135deg,#00d4aa,#0ea5e9);
-      --radius:      12px;
-      --radius-lg:   18px;
-      --sidebar-w:   300px;
-      --transition:  .2s ease;
+      --bg: #0d1117;
+      --surface: #161b22;
+      --surface-hover: #21262d;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-dim: rgba(88, 166, 255, 0.12);
+      --user-bg: #21262d;
+      --radius: 12px;
+      --sidebar-w: 280px;
     }
-
-    html, body { height: 100%; overflow: hidden; font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); }
-
-    /* ── Layout ───────────────────────────────────────────────────── */
+    html, body { height: 100%; font-family: Inter, system-ui, sans-serif; background: var(--bg); color: var(--text); }
     .app { display: flex; height: 100vh; }
 
-    /* ── Sidebar ──────────────────────────────────────────────────── */
+    /* Sidebar */
     .sidebar {
       width: var(--sidebar-w);
       min-width: var(--sidebar-w);
-      background: var(--surface);
       border-right: 1px solid var(--border);
       display: flex;
       flex-direction: column;
-      transition: width var(--transition), min-width var(--transition);
-      overflow: hidden;
-    }
-    .sidebar.collapsed { width: 0; min-width: 0; }
-
-    .sidebar-header {
-      padding: 20px 18px 16px;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .sidebar-header h2 {
-      font-size: 13px;
-      font-weight: 600;
-      letter-spacing: .08em;
-      text-transform: uppercase;
-      color: var(--text-muted);
-    }
-    .paper-count {
-      margin-left: auto;
-      background: var(--teal-dim);
-      color: var(--teal);
-      font-size: 11px;
-      font-weight: 600;
-      padding: 2px 8px;
-      border-radius: 99px;
-    }
-
-    .sidebar-search {
-      padding: 12px 16px;
-      border-bottom: 1px solid var(--border);
-    }
-    .sidebar-search input {
-      width: 100%;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 8px 12px;
-      color: var(--text);
-      font-size: 13px;
-      font-family: inherit;
-      outline: none;
-      transition: border var(--transition);
-    }
-    .sidebar-search input:focus { border-color: var(--teal); }
-    .sidebar-search input::placeholder { color: var(--text-muted); }
-
-    .papers-list {
-      flex: 1;
-      overflow-y: auto;
-      padding: 8px 10px;
-    }
-    .papers-list::-webkit-scrollbar { width: 4px; }
-    .papers-list::-webkit-scrollbar-track { background: transparent; }
-    .papers-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-
-    .paper-item {
-      padding: 10px 12px;
-      border-radius: 10px;
-      cursor: pointer;
-      transition: background var(--transition);
-      margin-bottom: 2px;
-    }
-    .paper-item:hover { background: var(--surface2); }
-    .paper-item .p-title {
-      font-size: 12.5px;
-      font-weight: 500;
-      color: var(--text-dim);
-      line-height: 1.4;
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
-    }
-    .paper-item .p-meta {
-      display: flex;
-      gap: 6px;
-      align-items: center;
-      margin-top: 5px;
-    }
-    .year-badge {
-      background: var(--teal-dim);
-      color: var(--teal);
-      font-size: 10px;
-      font-weight: 700;
-      padding: 2px 7px;
-      border-radius: 99px;
-    }
-    .paper-item .p-authors {
-      font-size: 11px;
-      color: var(--text-muted);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    /* ── Main chat area ───────────────────────────────────────────── */
-    .main {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      min-width: 0;
-    }
-
-    /* ── Header ───────────────────────────────────────────────────── */
-    .header {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      padding: 16px 24px;
-      border-bottom: 1px solid var(--border);
       background: var(--surface);
-      backdrop-filter: blur(10px);
     }
-    .toggle-sidebar {
-      background: none;
-      border: none;
-      cursor: pointer;
-      padding: 6px;
-      border-radius: 8px;
-      color: var(--text-muted);
-      transition: background var(--transition), color var(--transition);
-      display: flex; align-items: center;
-    }
-    .toggle-sidebar:hover { background: var(--surface2); color: var(--text); }
-    .logo {
+    .sidebar.collapsed { width: 0; min-width: 0; overflow: hidden; border: none; }
+
+    .sb-top { padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+    .sb-brand { padding: 8px 10px 16px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+    .sb-brand h1 { font-size: 15px; font-weight: 600; }
+    .sb-brand p { font-size: 11px; color: var(--text-muted); margin-top: 4px; line-height: 1.4; }
+
+    .sb-btn {
       display: flex; align-items: center; gap: 10px;
+      width: 100%; padding: 10px 12px; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--bg);
+      color: var(--text); font-size: 13px; font-weight: 500;
+      cursor: pointer; font-family: inherit; text-align: left;
+      transition: background .15s, border-color .15s;
     }
-    .logo-icon {
-      width: 36px; height: 36px;
-      background: var(--user-grad);
-      border-radius: 10px;
+    .sb-btn:hover { background: var(--surface-hover); border-color: var(--text-muted); }
+    .sb-btn.primary { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+    .sb-btn.ghost { background: transparent; }
+    .sb-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+    .sb-section-label {
+      font-size: 11px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--text-muted); padding: 12px 12px 6px;
+    }
+
+    .chat-list { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
+    .chat-item {
+      display: flex; align-items: center; gap: 6px;
+      padding: 10px 10px; border-radius: 8px; cursor: pointer;
+      font-size: 13px; color: var(--text-muted); margin-bottom: 2px;
+      border: 1px solid transparent;
+    }
+    .chat-item:hover { background: var(--surface-hover); color: var(--text); }
+    .chat-item.active { background: var(--accent-dim); border-color: rgba(88,166,255,.35); color: var(--text); }
+    .chat-item span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chat-item .del {
+      opacity: 0; padding: 4px; border: none; background: none; color: var(--text-muted);
+      cursor: pointer; border-radius: 4px; flex-shrink: 0;
+    }
+    .chat-item:hover .del { opacity: 1; }
+    .chat-item .del:hover { color: #f85149; background: rgba(248,81,73,.1); }
+
+    .papers-block { border-top: 1px solid var(--border); max-height: 220px; display: flex; flex-direction: column; }
+    .papers-block .paper-search { padding: 8px 12px; }
+    .papers-block input {
+      width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border);
+      background: var(--bg); color: var(--text); font-size: 12px; font-family: inherit;
+    }
+    .papers-scroll { overflow-y: auto; padding: 0 8px 12px; flex: 1; }
+    .paper-row {
+      padding: 8px 10px; border-radius: 6px; font-size: 11px; color: var(--text-muted);
+      cursor: pointer; line-height: 1.35;
+    }
+    .paper-row:hover { background: var(--surface-hover); color: var(--text); }
+    .paper-row .pt { font-weight: 500; color: var(--text-dim, #c9d1d9); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+    /* Main */
+    .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    .topbar {
+      height: 52px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; padding: 0 16px; gap: 12px;
+      background: var(--bg);
+    }
+    .toggle-nav {
+      border: none; background: var(--surface); color: var(--text-muted);
+      width: 36px; height: 36px; border-radius: 8px; cursor: pointer;
       display: flex; align-items: center; justify-content: center;
-      font-size: 18px;
-      box-shadow: var(--teal-glow);
     }
-    .logo-text h1 { font-size: 16px; font-weight: 700; }
-    .logo-text p { font-size: 12px; color: var(--text-muted); }
+    .toggle-nav:hover { color: var(--text); }
+    .topbar-title { font-size: 14px; font-weight: 500; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .status-pill {
+      font-size: 11px; padding: 4px 10px; border-radius: 99px; background: var(--surface);
+      border: 1px solid var(--border); color: var(--text-muted);
+    }
+    .status-pill.ok { border-color: #238636; color: #3fb950; }
+    .status-pill.warn { border-color: #d29922; color: #e3b341; }
+    .status-pill.err { border-color: #f85149; color: #f85149; }
 
-    .status-dot {
-      margin-left: auto;
-      display: flex; align-items: center; gap: 7px;
-      font-size: 12px;
-      color: var(--text-muted);
-    }
-    .dot {
-      width: 8px; height: 8px; border-radius: 50%;
-      background: #22c55e;
-      box-shadow: 0 0 6px #22c55e;
-      animation: pulse 2s infinite;
-    }
-    @keyframes pulse {
-      0%,100% { opacity: 1; } 50% { opacity: .4; }
-    }
+    .thread-wrap { flex: 1; overflow: hidden; display: flex; justify-content: center; }
+    .thread { width: 100%; max-width: 768px; height: 100%; overflow-y: auto; padding: 24px 20px 120px; }
 
-    .header-actions { display: flex; gap: 8px; }
-    .icon-btn {
-      background: none; border: none; cursor: pointer;
-      padding: 7px; border-radius: 8px;
-      color: var(--text-muted);
-      transition: background var(--transition), color var(--transition);
-      display: flex; align-items: center;
-    }
-    .icon-btn:hover { background: var(--surface2); color: var(--text); }
-    .icon-btn[title="Reset"]  svg { stroke: #f87171; }
-    .icon-btn[title="Reset"]:hover { background: rgba(248,113,113,.1); color: #f87171; }
-
-    /* ── Messages ─────────────────────────────────────────────────── */
-    .messages {
-      flex: 1;
-      overflow-y: auto;
-      padding: 28px 24px;
-      display: flex;
-      flex-direction: column;
-      gap: 24px;
-    }
-    .messages::-webkit-scrollbar { width: 5px; }
-    .messages::-webkit-scrollbar-track { background: transparent; }
-    .messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-
-    /* Welcome screen */
     .welcome {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      flex: 1;
-      text-align: center;
-      gap: 20px;
-      padding: 40px;
-      animation: fadeIn .5s ease;
+      text-align: center; padding: 48px 20px; max-width: 520px; margin: 0 auto;
     }
-    .welcome-icon {
-      width: 72px; height: 72px;
-      background: var(--user-grad);
-      border-radius: 20px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 36px;
-      box-shadow: var(--teal-glow);
-    }
-    .welcome h2 { font-size: 24px; font-weight: 700; }
-    .welcome p { color: var(--text-muted); max-width: 460px; line-height: 1.6; font-size: 14px; }
-    .welcome-chips {
-      display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 8px;
-    }
+    .welcome h2 { font-size: 22px; font-weight: 600; margin-bottom: 12px; }
+    .welcome p { color: var(--text-muted); font-size: 14px; line-height: 1.65; margin-bottom: 20px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
     .chip {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 99px;
-      padding: 8px 16px;
-      font-size: 13px;
-      color: var(--text-dim);
-      cursor: pointer;
-      transition: all var(--transition);
+      padding: 8px 14px; border-radius: 99px; border: 1px solid var(--border);
+      font-size: 13px; color: var(--text-muted); cursor: pointer; background: var(--surface);
     }
-    .chip:hover {
-      background: var(--teal-dim);
-      border-color: var(--teal);
-      color: var(--teal);
-    }
+    .chip:hover { border-color: var(--accent); color: var(--accent); }
 
-    /* Message rows */
-    .msg-row {
-      display: flex;
-      gap: 12px;
-      animation: slideUp .25s ease;
+    .msg { display: flex; gap: 14px; margin-bottom: 28px; animation: fade .2s ease; }
+    @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+    .msg.user { flex-direction: row-reverse; }
+    .av {
+      width: 32px; height: 32px; border-radius: 6px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center; font-size: 15px;
+      background: var(--surface); border: 1px solid var(--border);
     }
-    @keyframes slideUp {
-      from { opacity: 0; transform: translateY(10px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-    .msg-row.user { flex-direction: row-reverse; }
-
-    .avatar {
-      width: 34px; height: 34px; border-radius: 50%;
-      flex-shrink: 0;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 16px;
-    }
-    .avatar.ai {
-      background: var(--user-grad);
-      box-shadow: var(--teal-glow);
-    }
-    .avatar.user-av { background: var(--surface2); border: 1px solid var(--border); }
-
+    .msg.user .av { background: var(--user-bg); }
     .bubble {
-      max-width: min(700px, 80%);
-      border-radius: var(--radius-lg);
-      padding: 14px 18px;
-      font-size: 14px;
-      line-height: 1.7;
+      max-width: 85%; padding: 12px 16px; border-radius: var(--radius);
+      font-size: 14px; line-height: 1.65;
     }
-    .bubble.ai {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      color: var(--text);
+    .msg.assistant .bubble {
+      background: var(--surface); border: 1px solid var(--border);
     }
-    .bubble.user-bubble {
-      background: var(--user-grad);
-      color: #000;
-      font-weight: 500;
-    }
-
-    /* Citation badges */
+    .msg.user .bubble { background: var(--accent); color: #fff; }
     .bubble .cite {
-      display: inline-flex;
-      align-items: center;
-      background: var(--teal-dim);
-      color: var(--teal);
-      font-size: 10.5px;
-      font-weight: 700;
-      padding: 1px 6px;
-      border-radius: 4px;
-      margin: 0 2px;
-      vertical-align: middle;
-      border: 1px solid rgba(0,212,170,.3);
+      display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 6px;
+      border-radius: 4px; background: var(--accent-dim); color: var(--accent); margin: 0 2px; vertical-align: middle;
     }
+    .sources { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+    .sources h4 { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); margin-bottom: 8px; }
+    .src-card {
+      padding: 8px 10px; border-radius: 6px; background: var(--bg); border: 1px solid var(--border);
+      margin-bottom: 6px; font-size: 12px;
+    }
+    .src-card .t { font-weight: 600; }
+    .src-card .m { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 
-    /* Sources panel */
-    .sources-panel {
-      margin-top: 12px;
-      border-top: 1px solid var(--border);
-      padding-top: 10px;
-    }
-    .sources-label {
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: .07em;
-      color: var(--text-muted);
-      margin-bottom: 8px;
-    }
-    .source-card {
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 9px 12px;
-      margin-bottom: 6px;
-      transition: border-color var(--transition);
-    }
-    .source-card:hover { border-color: rgba(0,212,170,.3); }
-    .source-card .sc-title {
-      font-size: 12.5px;
-      font-weight: 600;
-      color: var(--text-dim);
-      line-height: 1.4;
-    }
-    .source-card .sc-meta {
-      font-size: 11px;
-      color: var(--text-muted);
-      margin-top: 3px;
-    }
+    .thinking { display: flex; gap: 4px; padding: 14px 16px; }
+    .thinking i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: b .9s infinite; }
+    .thinking i:nth-child(2) { animation-delay: .15s; }
+    .thinking i:nth-child(3) { animation-delay: .3s; }
+    @keyframes b { 0%,100% { opacity: .3; } 50% { opacity: 1; } }
 
-    /* Thinking animation */
-    .thinking {
-      display: flex; align-items: center; gap: 5px;
-      padding: 14px 18px;
+    .composer-wrap {
+      position: sticky; bottom: 0; left: 0; right: 0;
+      padding: 12px 16px 20px; background: linear-gradient(transparent, var(--bg) 20%);
+      display: flex; justify-content: center;
+    }
+    .composer {
+      width: 100%; max-width: 768px;
+      display: flex; align-items: flex-end; gap: 10px;
+      padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius);
       background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
     }
-    .thinking span {
-      width: 7px; height: 7px; border-radius: 50%;
-      background: var(--teal);
-      animation: bounce .8s infinite;
+    .composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+    #q {
+      flex: 1; border: none; background: none; color: var(--text);
+      font-family: inherit; font-size: 14px; line-height: 1.5; resize: none;
+      max-height: 160px; min-height: 24px; outline: none;
     }
-    .thinking span:nth-child(2) { animation-delay: .15s; }
-    .thinking span:nth-child(3) { animation-delay: .30s; }
-    @keyframes bounce {
-      0%,100% { transform: translateY(0); opacity: .4; }
-      50%      { transform: translateY(-5px); opacity: 1; }
+    #q::placeholder { color: var(--text-muted); }
+    .send {
+      width: 36px; height: 36px; border-radius: 8px; border: none;
+      background: var(--accent); color: #fff; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
     }
+    .send:disabled { opacity: .4; cursor: not-allowed; }
 
-    @keyframes fadeIn {
-      from { opacity: 0; } to { opacity: 1; }
+    /* Modal */
+    .modal-bg {
+      position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 200;
+      display: none; align-items: center; justify-content: center; padding: 20px;
     }
+    .modal-bg.show { display: flex; }
+    .modal {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      max-width: 440px; width: 100%; padding: 22px;
+    }
+    .modal h3 { font-size: 16px; margin-bottom: 10px; }
+    .modal p { font-size: 13px; color: var(--text-muted); line-height: 1.55; margin-bottom: 16px; }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .modal-actions button {
+      padding: 8px 16px; border-radius: 8px; font-family: inherit; font-size: 13px; cursor: pointer;
+      border: 1px solid var(--border); background: var(--bg); color: var(--text);
+    }
+    .modal-actions button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 
-    /* ── Input area ───────────────────────────────────────────────── */
-    .input-area {
-      padding: 16px 24px 20px;
-      background: var(--surface);
-      border-top: 1px solid var(--border);
-    }
-    .input-wrap {
-      display: flex;
-      align-items: flex-end;
-      gap: 10px;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      padding: 10px 10px 10px 18px;
-      transition: border-color var(--transition), box-shadow var(--transition);
-    }
-    .input-wrap:focus-within {
-      border-color: var(--teal);
-      box-shadow: var(--teal-glow);
-    }
-    #question {
-      flex: 1;
-      background: none;
-      border: none;
-      outline: none;
-      color: var(--text);
-      font-family: inherit;
-      font-size: 14px;
-      line-height: 1.6;
-      resize: none;
-      max-height: 140px;
-      min-height: 22px;
-    }
-    #question::placeholder { color: var(--text-muted); }
-
-    .send-btn {
-      width: 38px; height: 38px;
-      background: var(--user-grad);
-      border: none;
-      border-radius: 10px;
-      cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      flex-shrink: 0;
-      transition: opacity var(--transition), transform var(--transition), box-shadow var(--transition);
-      box-shadow: var(--teal-glow);
-    }
-    .send-btn:hover { opacity: .9; transform: scale(1.05); }
-    .send-btn:active { transform: scale(.95); }
-    .send-btn:disabled { opacity: .4; cursor: not-allowed; transform: none; }
-    .input-hint {
-      font-size: 11px;
-      color: var(--text-muted);
-      text-align: right;
-      margin-top: 6px;
-    }
-
-    /* ── Error toast ──────────────────────────────────────────────── */
     .toast {
-      position: fixed;
-      bottom: 90px;
-      left: 50%;
-      transform: translateX(-50%) translateY(20px);
-      background: #1e1b4b;
-      border: 1px solid #f87171;
-      color: #fca5a5;
-      padding: 10px 20px;
-      border-radius: 10px;
-      font-size: 13px;
-      opacity: 0;
-      transition: all .3s ease;
-      pointer-events: none;
-      z-index: 100;
-      max-width: 400px;
-      text-align: center;
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+      padding: 10px 18px; border-radius: 8px; font-size: 13px; z-index: 300;
+      border: 1px solid var(--border); background: var(--surface); opacity: 0; pointer-events: none;
+      transition: opacity .25s;
     }
-    .toast.show {
-      opacity: 1;
-      transform: translateX(-50%) translateY(0);
-    }
+    .toast.show { opacity: 1; }
+    .toast.ok { border-color: #238636; color: #3fb950; }
+    .toast.err { border-color: #f85149; color: #f85149; }
+
+    input[type="file"] { display: none; }
   </style>
 </head>
 <body>
-
 <div class="app">
-
-  <!-- ── Sidebar ──────────────────────────────────────── -->
   <aside class="sidebar" id="sidebar">
-    <div class="sidebar-header">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-      <h2>Paper Library</h2>
-      <span class="paper-count" id="paper-count">…</span>
+    <div class="sb-top">
+      <div class="sb-brand">
+        <h1>Devreotes Lab</h1>
+        <p>Student assistant for Prof. Peter Devreotes’ papers — chemotaxis, signalling &amp; membrane biology.</p>
+      </div>
+      <button type="button" class="sb-btn primary" id="btn-new-chat">
+        <span>＋</span> New chat
+      </button>
+      <button type="button" class="sb-btn" id="btn-add-paper">
+        <span>📄</span> Add paper
+      </button>
+      <button type="button" class="sb-btn ghost" id="btn-signin">
+        <span>🔐</span> Sign in
+      </button>
     </div>
-    <div class="sidebar-search">
-      <input type="text" id="paper-search" placeholder="Search papers…" autocomplete="off" />
-    </div>
-    <div class="papers-list" id="papers-list">
-      <div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px">Loading…</div>
+    <div class="sb-section-label">Recent chats</div>
+    <div class="chat-list" id="chat-list"></div>
+    <div class="papers-block">
+      <div class="sb-section-label">Corpus</div>
+      <div class="paper-search"><input type="text" id="paper-filter" placeholder="Search papers…" /></div>
+      <div class="papers-scroll" id="papers-list"><div class="paper-row">Loading…</div></div>
     </div>
   </aside>
 
-  <!-- ── Main ─────────────────────────────────────────── -->
   <div class="main">
-
-    <!-- Header -->
-    <header class="header">
-      <button class="toggle-sidebar icon-btn" id="toggle-sidebar" title="Toggle Sidebar">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
-      </button>
-      <div class="logo">
-        <div class="logo-icon">🔬</div>
-        <div class="logo-text">
-          <h1>Devreotes Lab</h1>
-          <p>Research Assistant • RAG-Powered</p>
-        </div>
-      </div>
-      <div class="status-dot" id="status-dot">
-        <div class="dot" id="status-indicator"></div>
-        <span id="status-text">Initializing…</span>
-      </div>
-      <div class="header-actions">
-        <button class="icon-btn" id="reset-btn" title="Reset">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.58"/></svg>
-        </button>
-      </div>
+    <header class="topbar">
+      <button type="button" class="toggle-nav" id="toggle-sidebar" title="Toggle sidebar">☰</button>
+      <span class="topbar-title" id="chat-title">New chat</span>
+      <span class="status-pill" id="status-pill">Connecting…</span>
     </header>
-
-    <!-- Messages -->
-    <div class="messages" id="messages">
-      <div class="welcome" id="welcome-screen">
-        <div class="welcome-icon">🧬</div>
-        <h2>Ask about Devreotes' Research</h2>
-        <p>Explore Prof. Peter Devreotes' groundbreaking work on chemotaxis, signal transduction, PI3K signalling, PTEN, actin dynamics, and membrane protein biology.</p>
-        <div class="welcome-chips">
-          <div class="chip" onclick="sendChip(this)">Role of PI3K in chemotaxis</div>
-          <div class="chip" onclick="sendChip(this)">How does PTEN regulate PIP3?</div>
-          <div class="chip" onclick="sendChip(this)">What papers did Devreotes publish?</div>
-          <div class="chip" onclick="sendChip(this)">Actin dynamics at the leading edge</div>
-          <div class="chip" onclick="sendChip(this)">Who collaborated with Devreotes?</div>
-          <div class="chip" onclick="sendChip(this)">Methods used to study receptor degradation</div>
-        </div>
-      </div>
+    <div class="thread-wrap">
+      <div class="thread" id="thread"></div>
     </div>
-
-    <!-- Input -->
-    <div class="input-area">
-      <div class="input-wrap">
-        <textarea id="question" placeholder="Ask a question about Prof. Devreotes' research…" rows="1"></textarea>
-        <button class="send-btn" id="send-btn" disabled>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+    <div class="composer-wrap">
+      <div class="composer">
+        <textarea id="q" rows="1" placeholder="Ask about the papers… (Enter to send, Shift+Enter for newline)"></textarea>
+        <button type="button" class="send" id="btn-send" disabled>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 2L11 13"/><path d="M22 2L15 22 11 13 2 9 22 2z"/></svg>
         </button>
       </div>
-      <p class="input-hint">Enter to send &nbsp;·&nbsp; Shift+Enter for new line</p>
     </div>
-
   </div>
 </div>
 
-<!-- Error toast -->
+<input type="file" id="file-pdf" accept=".pdf,application/pdf" />
+
+<div class="modal-bg" id="modal-auth">
+  <div class="modal">
+    <h3>Sign in</h3>
+    <p>Accounts are not enabled yet. Chat history is stored on this server in a local database. When sign-in is added, your threads can sync across devices.</p>
+    <div class="modal-actions"><button type="button" class="primary" data-close-modal>OK</button></div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
-const API = '';  // same origin
+const API = '';
 
-// ── State ─────────────────────────────────────────────────────────
 let ready = false;
 let thinking = false;
+let currentChatId = null;
+let allChats = [];
 let allPapers = [];
+let ingestPoll = null;
 
-// ── DOM refs ──────────────────────────────────────────────────────
-const messagesEl   = document.getElementById('messages');
-const questionEl   = document.getElementById('question');
-const sendBtn      = document.getElementById('send-btn');
-const welcomeEl    = document.getElementById('welcome-screen');
-const papersList   = document.getElementById('papers-list');
-const paperCount   = document.getElementById('paper-count');
-const paperSearch  = document.getElementById('paper-search');
-const statusDot    = document.getElementById('status-indicator');
-const statusText   = document.getElementById('status-text');
-const toggleSidebar= document.getElementById('toggle-sidebar');
-const sidebar      = document.getElementById('sidebar');
-const resetBtn     = document.getElementById('reset-btn');
-const toast        = document.getElementById('toast');
+const thread = document.getElementById('thread');
+const qEl = document.getElementById('q');
+const btnSend = document.getElementById('btn-send');
+const chatList = document.getElementById('chat-list');
+const chatTitle = document.getElementById('chat-title');
+const statusPill = document.getElementById('status-pill');
+const sidebar = document.getElementById('sidebar');
+const toast = document.getElementById('toast');
+const filePdf = document.getElementById('file-pdf');
 
-// ── Init ──────────────────────────────────────────────────────────
-async function init() {
-  await loadPapers();
-  pingHealth();
+function setStatus(ok, text) {
+  statusPill.textContent = text;
+  statusPill.className = 'status-pill ' + (ok ? 'ok' : ok === false ? 'err' : 'warn');
 }
 
-async function pingHealth() {
+function showToast(msg, ok) {
+  toast.textContent = msg;
+  toast.className = 'toast show ' + (ok ? 'ok' : 'err');
+  setTimeout(() => { toast.classList.remove('show'); }, 3500);
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function formatAnswer(text) {
+  return esc(text).replace(/\[S(\d+(?:,\s*S\d+)*)\]/g, (_, inner) =>
+    `<span class="cite">[S${inner.replace(/S(\d+)/g,'$1')}]</span>`
+  ).replace(/\n/g, '<br>');
+}
+
+async function fetchJSON(url, opt) {
+  const r = await fetch(url, opt);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || r.statusText);
+  return d;
+}
+
+async function refreshChats() {
+  const d = await fetchJSON(`${API}/api/chats`);
+  allChats = d.chats || [];
+  renderChatList();
+}
+
+function renderChatList() {
+  chatList.innerHTML = allChats.map(c => `
+    <div class="chat-item ${c.id === currentChatId ? 'active' : ''}" data-id="${esc(c.id)}">
+      <span title="${esc(c.title)}">${esc(c.title)}</span>
+      <button type="button" class="del" data-del="${esc(c.id)}" title="Delete">×</button>
+    </div>
+  `).join('') || '<div style="padding:12px;color:var(--text-muted);font-size:12px">No chats yet</div>';
+
+  chatList.querySelectorAll('.chat-item').forEach(el => {
+    el.addEventListener('click', (e) => {
+      if (e.target.classList.contains('del')) return;
+      selectChat(el.dataset.id);
+    });
+  });
+  chatList.querySelectorAll('.del').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.del;
+      if (id === currentChatId) {
+        await fetchJSON(`${API}/api/chats/${id}`, { method: 'DELETE' });
+        currentChatId = null;
+        await refreshChats();
+        if (allChats.length) await selectChat(allChats[0].id);
+        else await createNewChat();
+      } else {
+        await fetchJSON(`${API}/api/chats/${id}`, { method: 'DELETE' });
+        await refreshChats();
+      }
+    });
+  });
+}
+
+async function createNewChat() {
+  const c = await fetchJSON(`${API}/api/chats`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: 'New chat' }),
+  });
+  currentChatId = c.id;
+  await refreshChats();
+  chatTitle.textContent = c.title;
+  renderWelcome();
+}
+
+async function selectChat(id) {
+  currentChatId = id;
+  const c = allChats.find(x => x.id === id);
+  chatTitle.textContent = c ? c.title : 'Chat';
+  renderChatList();
+  const d = await fetchJSON(`${API}/api/chats/${id}/messages`);
+  renderMessages(d.messages || []);
+}
+
+function renderWelcome() {
+  thread.innerHTML = `
+    <div class="welcome">
+      <h2>Learn from the lab’s publications</h2>
+      <p>This assistant answers from indexed papers by Peter Devreotes and collaborators. Ask about mechanisms, experiments, and concepts — follow-ups use your chat history.</p>
+      <div class="chips">
+        <span class="chip" data-q="What role does PI3K play in chemotaxis?">PI3K in chemotaxis</span>
+        <span class="chip" data-q="How does PTEN regulate PIP3 levels?">PTEN and PIP3</span>
+        <span class="chip" data-q="What papers did Devreotes publish on Dictyostelium?">Dictyostelium papers</span>
+        <span class="chip" data-q="Who collaborated with Peter Devreotes?">Collaborators</span>
+      </div>
+    </div>`;
+  thread.querySelectorAll('.chip').forEach(ch => {
+    ch.addEventListener('click', () => { qEl.value = ch.dataset.q; send(); });
+  });
+}
+
+function renderMessages(messages) {
+  if (!messages.length) {
+    renderWelcome();
+    return;
+  }
+  thread.innerHTML = '';
+  messages.forEach(m => appendMessageRow(m.role, m.content, m.sources));
+  thread.scrollTop = thread.scrollHeight;
+}
+
+function appendMessageRow(role, content, sources) {
+  const isUser = role === 'user';
+  const srcHtml = (!isUser && sources && sources.length) ? `
+    <div class="sources">
+      <h4>Sources</h4>
+      ${sources.map(s => `
+        <div class="src-card">
+          <div class="t">${esc(s.title)}</div>
+          <div class="m">${esc(String(s.year||''))} · ${esc((s.authors||[]).slice(0,2).join(', '))}</div>
+        </div>`).join('')}
+    </div>` : '';
+  const div = document.createElement('div');
+  div.className = 'msg ' + (isUser ? 'user' : 'assistant');
+  div.innerHTML = `
+    <div class="av">${isUser ? 'You' : '🔬'}</div>
+    <div class="bubble">${isUser ? esc(content) : formatAnswer(content)}${srcHtml}</div>`;
+  thread.appendChild(div);
+}
+
+function appendThinking() {
+  const div = document.createElement('div');
+  div.className = 'msg assistant';
+  div.id = 'thinking-row';
+  div.innerHTML = `<div class="av">🔬</div><div class="bubble thinking"><i></i><i></i><i></i></div>`;
+  thread.appendChild(div);
+  thread.scrollTop = thread.scrollHeight;
+  return div;
+}
+
+async function send() {
+  const text = qEl.value.trim();
+  if (!text || thinking || !ready || !currentChatId) return;
+
+  if (thread.querySelector('.welcome')) thread.innerHTML = '';
+  appendMessageRow('user', text, null);
+  qEl.value = '';
+  qEl.style.height = 'auto';
+  thinking = true;
+  btnSend.disabled = true;
+  const th = appendThinking();
+
   try {
-    await fetch(`${API}/health`);
-    setStatus('ready', 'Engine Ready');
-    ready = true;
-    sendBtn.disabled = false;
-  } catch {
-    setStatus('error', 'Server offline');
-    setTimeout(pingHealth, 3000);
+    const data = await fetchJSON(`${API}/api/chats/${currentChatId}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: text }),
+    });
+    th.remove();
+    appendMessageRow('assistant', data.answer, data.sources);
+    await refreshChats();
+    const c = allChats.find(x => x.id === currentChatId);
+    if (c) chatTitle.textContent = c.title;
+  } catch (e) {
+    th.remove();
+    appendMessageRow('assistant', 'Error: ' + e.message, null);
+  } finally {
+    thinking = false;
+    btnSend.disabled = false;
+    qEl.focus();
   }
 }
 
 async function loadPapers() {
   try {
-    const r = await fetch(`${API}/api/papers`);
-    const d = await r.json();
+    const d = await fetchJSON(`${API}/api/papers`);
     allPapers = d.papers || [];
-    paperCount.textContent = allPapers.length;
     renderPapers(allPapers);
   } catch {
-    papersList.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px">Could not load papers</div>';
+    document.getElementById('papers-list').innerHTML = '<div class="paper-row">Could not load</div>';
   }
 }
 
 function renderPapers(papers) {
+  const el = document.getElementById('papers-list');
   if (!papers.length) {
-    papersList.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px">No papers found</div>';
+    el.innerHTML = '<div class="paper-row">No papers yet — add a PDF.</div>';
     return;
   }
-  papersList.innerHTML = papers.map(p => `
-    <div class="paper-item" onclick="sendChip2('Tell me about: ${escHtml(p.title)}')">
-      <div class="p-title">${escHtml(p.title)}</div>
-      <div class="p-meta">
-        <span class="year-badge">${p.year || '—'}</span>
-        <span class="p-authors">${(p.authors||[]).slice(0,2).join(', ')}${(p.authors||[]).length>2?' et al.':''}</span>
-      </div>
-    </div>
-  `).join('');
+  el.innerHTML = papers.map(p => `
+    <div class="paper-row" data-q="${encodeURIComponent('Summarize: ' + (p.title || ''))}">
+      <div class="pt">${esc(p.title)}</div>
+      <div style="opacity:.75;margin-top:4px">${p.year||'—'}</div>
+    </div>`).join('');
+  el.querySelectorAll('.paper-row').forEach(row => {
+    if (!row.dataset.q) return;
+    row.addEventListener('click', () => {
+      try { qEl.value = decodeURIComponent(row.dataset.q); } catch (_) {}
+      send();
+    });
+  });
 }
 
-paperSearch.addEventListener('input', () => {
-  const q = paperSearch.value.toLowerCase().trim();
+document.getElementById('paper-filter').addEventListener('input', (e) => {
+  const q = e.target.value.toLowerCase().trim();
   renderPapers(q ? allPapers.filter(p =>
-    p.title.toLowerCase().includes(q) ||
-    (p.authors||[]).some(a => a.toLowerCase().includes(q)) ||
-    String(p.year).includes(q)
+    (p.title||'').toLowerCase().includes(q) ||
+    (p.authors||[]).some(a => String(a).toLowerCase().includes(q))
   ) : allPapers);
 });
 
-toggleSidebar.addEventListener('click', () => sidebar.classList.toggle('collapsed'));
+document.getElementById('btn-new-chat').addEventListener('click', () => createNewChat());
+document.getElementById('toggle-sidebar').addEventListener('click', () => sidebar.classList.toggle('collapsed'));
 
-resetBtn.addEventListener('click', async () => {
+document.getElementById('btn-add-paper').addEventListener('click', () => filePdf.click());
+filePdf.addEventListener('change', async () => {
+  const f = filePdf.files && filePdf.files[0];
+  filePdf.value = '';
+  if (!f) return;
+  const fd = new FormData();
+  fd.append('file', f);
   try {
-    await fetch(`${API}/api/reset`, { method: 'POST' });
-    messagesEl.innerHTML = '';
-    messagesEl.appendChild(welcomeEl);
-    welcomeEl.style.display = 'flex';
-    showToast('Conversation reset ✓', true);
-  } catch { showToast('Reset failed'); }
-});
-
-// ── Send ──────────────────────────────────────────────────────────
-function sendChip(el) { questionEl.value = el.textContent; autoResize(); sendMessage(); }
-function sendChip2(text) { questionEl.value = text; autoResize(); sendMessage(); }
-
-questionEl.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
-});
-questionEl.addEventListener('input', autoResize);
-sendBtn.addEventListener('click', sendMessage);
-
-function autoResize() {
-  questionEl.style.height = 'auto';
-  questionEl.style.height = Math.min(questionEl.scrollHeight, 140) + 'px';
-}
-
-async function sendMessage() {
-  const q = questionEl.value.trim();
-  if (!q || thinking || !ready) return;
-
-  hideWelcome();
-  appendUserBubble(q);
-  questionEl.value = '';
-  questionEl.style.height = 'auto';
-  sendBtn.disabled = true;
-  thinking = true;
-
-  const thinkRow = appendThinking();
-
-  try {
-    const resp = await fetch(`${API}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question: q }),
-    });
-    const data = await resp.json();
-    thinkRow.remove();
-
-    if (data.error) {
-      appendError(data.error);
-    } else {
-      appendAIBubble(data.answer, data.sources || []);
-    }
-  } catch (err) {
-    thinkRow.remove();
-    appendError('Network error — is the server running?');
-  } finally {
-    thinking = false;
-    sendBtn.disabled = false;
-    questionEl.focus();
+    const r = await fetch(`${API}/api/papers/upload`, { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Upload failed');
+    showToast('Processing PDF in the background…', true);
+    startIngestPoll();
+  } catch (e) {
+    showToast(e.message, false);
   }
+});
+
+function startIngestPoll() {
+  if (ingestPoll) clearInterval(ingestPoll);
+  ingestPoll = setInterval(async () => {
+    try {
+      const s = await fetchJSON(`${API}/api/ingest/status`);
+      if (s.state === 'running' || s.state === 'queued') {
+        setStatus(null, s.message || 'Indexing…');
+      } else if (s.state === 'done') {
+        clearInterval(ingestPoll);
+        ingestPoll = null;
+        setStatus(true, 'Ready');
+        showToast(s.message || 'Done', true);
+        await loadPapers();
+      } else if (s.state === 'error') {
+        clearInterval(ingestPoll);
+        ingestPoll = null;
+        setStatus(true, 'Ready');
+        showToast(s.message || 'Ingest error', false);
+      } else {
+        clearInterval(ingestPoll);
+        ingestPoll = null;
+      }
+    } catch { /* ignore */ }
+  }, 2000);
 }
 
-// ── DOM helpers ───────────────────────────────────────────────────
-function hideWelcome() {
-  if (welcomeEl.parentNode) welcomeEl.remove();
-}
+document.getElementById('btn-signin').addEventListener('click', () => {
+  document.getElementById('modal-auth').classList.add('show');
+});
+document.querySelectorAll('[data-close-modal]').forEach(b => {
+  b.addEventListener('click', () => document.getElementById('modal-auth').classList.remove('show'));
+});
+document.getElementById('modal-auth').addEventListener('click', (e) => {
+  if (e.target.id === 'modal-auth') e.target.classList.remove('show');
+});
 
-function appendUserBubble(text) {
-  messagesEl.appendChild(el('div', 'msg-row user', `
-    <div class="avatar user-av">👤</div>
-    <div class="bubble user-bubble">${escHtml(text)}</div>
-  `));
-  scrollBottom();
-}
+qEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+});
+qEl.addEventListener('input', () => {
+  qEl.style.height = 'auto';
+  qEl.style.height = Math.min(qEl.scrollHeight, 160) + 'px';
+});
+btnSend.addEventListener('click', send);
+qEl.addEventListener('input', () => { btnSend.disabled = !qEl.value.trim() || !ready; });
 
-function appendThinking() {
-  const row = el('div', 'msg-row', `
-    <div class="avatar ai">🔬</div>
-    <div class="thinking"><span></span><span></span><span></span></div>
-  `);
-  messagesEl.appendChild(row);
-  scrollBottom();
-  return row;
-}
-
-function appendAIBubble(answer, sources) {
-  const sourcesHtml = sources.length ? `
-    <div class="sources-panel">
-      <div class="sources-label">Sources (${sources.length})</div>
-      ${sources.map(s => `
-        <div class="source-card">
-          <div class="sc-title">${escHtml(s.title)}</div>
-          <div class="sc-meta">${s.year} &nbsp;·&nbsp; ${(s.authors||[]).slice(0,2).join(', ')}${(s.authors||[]).length>2?' et al.':''}</div>
-        </div>
-      `).join('')}
-    </div>
-  ` : '';
-
-  messagesEl.appendChild(el('div', 'msg-row', `
-    <div class="avatar ai">🔬</div>
-    <div class="bubble ai">
-      <div class="answer-text">${formatAnswer(answer)}</div>
-      ${sourcesHtml}
-    </div>
-  `));
-  scrollBottom();
-}
-
-function appendError(msg) {
-  messagesEl.appendChild(el('div', 'msg-row', `
-    <div class="avatar ai">🔬</div>
-    <div class="bubble ai" style="border-color:#f87171;color:#fca5a5">${escHtml(msg)}</div>
-  `));
-  scrollBottom();
-}
-
-function formatAnswer(text) {
-  // Render [S#] as styled citation badges
-  return escHtml(text).replace(/\[S(\d+(?:,\s*S\d+)*)\]/g, (_, inner) =>
-    `<span class="cite">[S${inner.replace(/S(\d+)/g,'$1')}]</span>`
-  ).replace(/\n/g, '<br>');
-}
-
-function setStatus(state, msg) {
-  statusText.textContent = msg;
-  statusDot.style.background = state === 'ready' ? '#22c55e' : state === 'error' ? '#f87171' : '#fbbf24';
-  statusDot.style.boxShadow = `0 0 6px ${state === 'ready' ? '#22c55e' : state === 'error' ? '#f87171' : '#fbbf24'}`;
-}
-
-function scrollBottom() {
-  requestAnimationFrame(() => messagesEl.scrollTo({ top: messagesEl.scrollHeight, behavior: 'smooth' }));
-}
-
-function el(tag, cls, html) {
-  const e = document.createElement(tag);
-  e.className = cls;
-  e.innerHTML = html;
-  return e;
-}
-
-function escHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-let toastTimer;
-function showToast(msg, ok = false) {
-  toast.textContent = msg;
-  toast.style.borderColor = ok ? 'var(--teal)' : '#f87171';
-  toast.style.color = ok ? 'var(--teal)' : '#fca5a5';
-  toast.style.background = ok ? 'rgba(0,212,170,.1)' : '#1e1b4b';
-  toast.classList.add('show');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.remove('show'), 3000);
+async function init() {
+  try {
+    await fetch(`${API}/health`);
+    setStatus(true, 'Ready');
+    ready = true;
+    btnSend.disabled = !qEl.value.trim();
+  } catch {
+    setStatus(false, 'Offline');
+    setTimeout(init, 2500);
+    return;
+  }
+  await refreshChats();
+  if (!allChats.length) await createNewChat();
+  else await selectChat(allChats[0].id);
+  await loadPapers();
 }
 
 init();
